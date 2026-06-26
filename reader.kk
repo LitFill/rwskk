@@ -24,12 +24,12 @@ pub fun local(f, action)
 //|  Using Reader effect  |//
 //|-----------------------|//
 
-pub fun greet()
+fun greet()
   val name = ask ()
   val p = print
   "Hello, ".p; name.p; "!".println
 
-pub fun sq()
+fun sq()
   val h = asks fn(r) r * r
   h.show
 

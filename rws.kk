@@ -20,7 +20,7 @@ pub import state
 //|  accumulates tell() calls automatically.                           |
 //|--------------------------------------------------------------------|
 
-pub fun demo-counter()
+fun demo-counter()
   println("--- Counter with Audit Log (State + Writer) ---")
   val monoid = list/monoid()
 
@@ -57,12 +57,12 @@ pub fun demo-counter()
 //|  of items into a document, scoping the reader locally for realism. |
 //|--------------------------------------------------------------------|
 
-pub struct doc-config
+struct doc-config
   header    : string
   separator : string
   footer    : string
 
-pub fun demo-doc-processor()
+fun demo-doc-processor()
   println("--- Document Processor (Reader + Writer) ---")
   val config = Doc-config("=== Document ===", "----------------", "=== End ===")
   val items = ["Introduction", "Methodology", "Results", "Conclusion"]
@@ -116,7 +116,7 @@ pub fun demo-doc-processor()
 //|  it's three nested handlers, no lift/run plumbing.                 |
 //|--------------------------------------------------------------------|
 
-pub fun demo-stack-calc()
+fun demo-stack-calc()
   println("--- Stack Calculator (Reader + State + Writer) ---")
   val monoid = list/monoid()
   val env-factor = 3
@@ -168,7 +168,7 @@ pub fun demo-stack-calc()
     j := j + 1
 //|--------------------------------------------------------------------|
 
-pub fun rws()
+fun rws()
   val p = println
   "===== RWS Combined Effect Demos =====".p ; "".p
   demo-counter()                            ; "".p

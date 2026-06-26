@@ -16,11 +16,11 @@ fun show-port() : <reader<string>> string
 // A test action that overrides the environment locally
 fun test-local-override() : <reader<string>> string
   val original = show-port()
-  
+
   // We override the reader effect locally by binding a new handler
   with fun ask() { "8080" }
   val overridden = show-port()
-    
+
   original ++ " | Overridden: " ++ overridden
 
 type config
@@ -56,7 +56,7 @@ fun calculate-content-length() : reader<string> int
   content.chars/count
 
 fun calculate-modified-content-length() : reader<string> int
-  local fn(r) { "Prefix " ++ r }
+  local ("Prefix " ++ _)
     calculate-content-length()
 
 fun print-reader-content() : <reader<string>,console> ()
@@ -106,7 +106,6 @@ fun main ()
   }
   println("Modified 's' length: " ++ mod-len.show)
   println("Original 's' length: " ++ len.show)
-
 
   "===========".println
   "Some Content".reader {

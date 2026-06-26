@@ -1,160 +1,176 @@
 module rws
 
-//|-------------------------------------------------|//
-//|  Reader effect mimicing Haskell's Reader Monad  |//
-//|-------------------------------------------------|//
+pub import reader
+pub import writer
+pub import state
 
-pub effect reader<a>
-  fun ask() : a
+//|====================================================================|
+//|  Elaborate Combined-Effect Demos: Reader, Writer, State            |
+//|                                                                    |
+//|  These demos showcase Koka's algebraic effects working together —  |
+//|  the same thing that requires monad transformers in Haskell is     |
+//|  flat composition of effect handlers here.                         |
+//|====================================================================|
 
-pub fun reader(a, action)
-  with fun ask() a
-  action()
+//|--------------------------------------------------------------------|
+//|  Demo 1: Counter with Audit Log (State + Writer)                   |
+//|                                                                    |
+//|  State tracks a running count. Writer logs every mutation as a     |
+//|  human-readable entry in a string list. The list monoid (++)       |
+//|  accumulates tell() calls automatically.                           |
+//|--------------------------------------------------------------------|
 
-pub fun asks(f)
-  val r = ask()
-  f(r)
+pub fun demo-counter()
+  println("--- Counter with Audit Log (State + Writer) ---")
+  val monoid = list/monoid()
 
-pub fun local(f, action)
-  val r = ask()
-  with reader(asks(f))
-  action()
+  // State wraps: (action-result, final-state)
+  // Writer wraps: (action-result, accumulated-log)
+  // Composed: ((body-value, log), final-state)
+  val ((final-count, log), _) =
+    with state(0)
+    with writer
 
-//|-----------------------|//
-//|  Using Reader effect  |//
-//|-----------------------|//
+    [ "init: count = 0" ].tell
+    modify (_ + 5)
+    [ "add 5      -> " ++ gets(int/show) ].tell
+    modify (_ * 2)
+    [ "mul 2      -> " ++ gets(int/show) ].tell
+    modify (_ - 3)
+    [ "sub 3      -> " ++ gets(int/show) ].tell
+    modify (_ / 2)
+    [ "div 2      -> " ++ gets(int/show) ].tell
+    get()
 
-pub fun greet()
-  val name = ask ()
-  val p = print
-  "Hello, ".p; name.p; "!".println
+  println("Final count: " ++ final-count.show)
+  println("Operation log:")
+  var i := 1
+  log.foreach fn(entry)
+    println("  " ++ i.show ++ ". " ++ entry)
+    i := i + 1
 
-pub fun sq()
-  val h = asks fn(r) r * r
-  h.show
+//|--------------------------------------------------------------------|
+//|  Demo 2: Config-Driven Document Processor (Reader + Writer)        |
+//|                                                                    |
+//|  Reader supplies a document config (header, separator, footer).    |
+//|  Writer logs each processing step. The processor formats a list    |
+//|  of items into a document, scoping the reader locally for realism. |
+//|--------------------------------------------------------------------|
 
-//|----------|//
-//|  Monoid  |//
-//|----------|//
+pub struct doc-config
+  header    : string
+  separator : string
+  footer    : string
 
-pub struct monoid<m>
-  append : (x : m, y : m) -> m
-  empty : m
+pub fun demo-doc-processor()
+  println("--- Document Processor (Reader + Writer) ---")
+  val config = Doc-config("=== Document ===", "----------------", "=== End ===")
+  val items = ["Introduction", "Methodology", "Results", "Conclusion"]
 
-pub fun ?string/monoid() : monoid<string>
-  Monoid((++), "")
+  val monoid = list/monoid()
 
-pub fun ?list/monoid() : monoid<list<a>>
-  Monoid((++), [])
+  // reader passes the return through unmodified — no result wrapping.
+  // writer wraps: (body-value, log)
+  val (_res, log) =
+    with reader(config)
+    with writer
 
-pub fun make/monoid(?append, ?empty)
-  Monoid(?append, ?empty)
+    tell(["config loaded"])
 
-//|-------------------------------------------------|//
-//|  Writer effect mimicing Haskell's Writer Monad  |//
-//|-------------------------------------------------|//
+    // Write header from config
+    val hdr = asks(header)
+    hdr.println
+    tell(["header written"])
 
-pub effect writer<w>
-  fun tell(w : w) : ()
+    // Process each item with config-aware scoping
+    items.foreach fn(item)
+      val sep = asks(separator)
+      sep.println
+      item.println
+      tell(["processed \"" ++ item ++ "\""])
 
-pub fun writer(action : () -> <writer<w>|e> a, ?monoid : monoid<w>) : e (a, w)
-  var ws := monoid.empty
-  with handler
-    fun tell(w)
-      ws := (monoid.append)(ws, w)
-    return(x)
-      (x, ws)
-  action()
+    // Write footer from config
+    val ftr = asks(footer)
+    ftr.println
+    tell(["footer written"])
 
-pub fun listen(action, ?monoid)
-  writer(action)
+    // local reader override: swap the footer for a custom one
+    local fn(cfg : doc-config) { cfg(footer="— EOF —") }
+      asks(footer).println
 
-pub fun listens(f, action, ?monoid)
-  val (x, w) = writer(action)
-  (x, f(w))
+  println("Process log:")
+  var i := 1
+  log.foreach fn(entry)
+    println("  " ++ i.show ++ ". " ++ entry)
+    i := i + 1
 
-pub fun pass(action, ?monoid)
-  val ((x, f), w) = writer(action)
-  tell(f(w))
-  x
+//|--------------------------------------------------------------------|
+//|  Demo 3: Stack Calculator (Reader + State + Writer — full RWS)     |
+//|                                                                    |
+//|  A tiny stack-based calculator showing all three effects together: |
+//|    Reader: multiplier factor from the environment                  |
+//|    State:  a stack of integers                                     |
+//|    Writer: a trace of every operation                              |
+//|                                                                    |
+//|  In Haskell this would need RWS monad transformer stack. In Koka   |
+//|  it's three nested handlers, no lift/run plumbing.                 |
+//|--------------------------------------------------------------------|
 
-pub fun censor(f, action, ?monoid)
-  val (x, w) = action.writer
-  tell(f(w))
-  x
+pub fun demo-stack-calc()
+  println("--- Stack Calculator (Reader + State + Writer) ---")
+  val monoid = list/monoid()
+  val env-factor = 3
+  fun glis() gets(list/show(_, int/show))
+  val trace =
+    with reader(env-factor)
+    val ((_result, log), _stack) =
+      with state([])
+      with writer
+      tell(["stack initialized as []"])
 
-//|-----------------------|//
-//|  Using Writer effect  |//
-//|-----------------------|//
+      // Push values onto the stack
+      modify (_ ++ [10, 20, 30])
+      [ "pushed [10, 20, 30] -> " ++ glis() ].tell
 
-fun cek-listens()
-  val empty = ""
-  val append = fn(x, y) x ++ "\n" ++ y
-  val monoid = make/monoid()
-  listens(to-upper)
-    writing-length("Hello, Writer effect!".split(" "))
+      // Pop top two, add them, multiply by environment factor, push back
+      match gets(reverse)
+        Cons(x : int, Cons(y : int, rest : list<int>)) ->
+          val factor = ask()
+          val sum    = x + y
+          val prod   = sum * factor
+          put(rest ++ [prod])
+          tell([x.show ++ " + " ++ y.show ++ " = " ++ sum.show])
+          tell([sum.show ++ " * " ++ factor.show ++ " (env) = " ++ prod.show])
+          [ "stack after op: " ++ glis() ].tell
 
-fun cek-pass()
-  val monoid = string/monoid()
-  with writer
-  writing-length(["a", "b"])
-  val b = pass
-      tell("inside pass")
-      ("x", to-upper)
-  tell("after pass")
-  b
+          // Second operation: push two more, add
+          modify (_ ++ [4, 5])
+          [ "pushed [4, 5] -> " ++ glis() ].tell
 
-fun cek-censor()
-  val monoid = string/monoid()
-  with writer
-  writing-length(["a", "b"])
-  val b =
-    with censor() fn(w)
-      string/repeat("*", w.chars/count)
-    tell("pass")
-    "x"
-  tell("after censor")
-  b
+          match gets(reverse)
+            Cons(a : int, Cons(b : int, tail : list<int>)) ->
+              val product = (a + b) * ask()
+              put(tail ++ [product])
+              tell([a.show ++ " + " ++ b.show ++ " = " ++ (a + b).show])
+              tell([(a + b).show ++ " * " ++ factor.show ++ " (env) = " ++ product.show])
+              [ "stack after op: " ++ glis() ].tell
 
-fun writing-length(xs)
-  fun go(ys, acc)
-    match ys
-      Nil -> acc
-      Cons(y, yy) ->
-        tell(y)
-        go(yy, acc + 1)
-  go(xs, 0)
+            _ -> tell(["ERROR: not enough operands for second op"])
+        _ -> tell(["ERROR: need at least 2 operands on stack"])
 
-fun www(monoid, action)
-  with writer
-  action()
+      println("Final stack: " ++ glis())
+    log
 
-fun writer-string(action)
-  with www(string/monoid())
-  action()
+  println("Execution trace:")
+  var j := 1
+  trace.foreach fn(entry)
+    println("  " ++ j.show ++ ". " ++ entry)
+    j := j + 1
+//|--------------------------------------------------------------------|
 
-fun len-write-monoid-sum()
-  val append = int/(+)
-  val empty = 0
-  with writer
-  val xs = [1, 2, 3, 4, 5]
-  xs.writing-length
-
-fun len-write()
-  with writer-string
-  val xs = [1, 2, 3, 4, 5].map(int/show)
-  xs.writing-length
-
-//|---------------------|//
-//|  Using RWS effects  |//
-//|---------------------|//
-
-pub fun rws ()
-  "from rws".println
-  with reader("LitFill")
-  greet ()
-  local (to-upper)
-    greet()
-  local fn(r) { 67.show }
-    greet()
-  greet ()
+pub fun rws()
+  val p = println
+  "===== RWS Combined Effect Demos =====".p ; "".p
+  demo-counter()                            ; "".p
+  demo-doc-processor()                      ; "".p
+  demo-stack-calc()                         ; "".p
